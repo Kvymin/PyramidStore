@@ -1,10 +1,15 @@
-# -*- coding: utf-8 -*-
-# by @嗷呜
+# coding=utf-8
+# !/usr/bin/python
 import sys
+from pprint import pprint
+
 sys.path.append('..')
 from base.spider import Spider
+from urllib.parse import quote
 
-class Spider(Spider):
+class Spider(Spider):  # 元类 默认的元类 type
+    def getName(self):
+        return "xpg"
 
     def init(self, extend=""):
         pass
@@ -18,14 +23,11 @@ class Spider(Spider):
     def destroy(self):
         pass
 
-    host='http://item.xpgcom.com'
-
-    headers = {
-      "User-Agent": "okhttp/3.12.11"
-    }
-
     def homeContent(self, filter):
-        data = self.fetch(f"{self.host}/api.php/v2.vod/androidtypes",headers=self.headers,).json()
+        data = self.fetch(
+            "{0}/api.php/v2.vod/androidtypes".format(self.host),
+            headers=self.header,
+        ).json()
         dy = {
             "classes": "类型",
             "areas": "地区",
@@ -36,7 +38,7 @@ class Spider(Spider):
         classes = []
         for item in data['data']:
             has_non_empty_field = False
-            item['sortby'] = ['updatetime', 'hits', 'score']
+            item['soryby'] = ['updatetime', 'hits', 'score']
             demos = ['时间', '人气', '评分']
             classes.append({"type_name": item["type_name"], "type_id": str(item["type_id"])})
             for key in dy:
@@ -61,25 +63,60 @@ class Spider(Spider):
         result["filters"] = filters
         return result
 
+    host = "http://c.xpgtv.net/"
+    header = {
+            'User-Agent': 'okhttp/3.12.11',
+            'version': 'XPGBOX com.phoenix.tv1.3.3',
+            'token': 'dlsrzQiVkxgxYnpvfhTfMJlsPK3Y9zlHl+hovVfGeMNNEkwoyDQr1YEuhaAKbhz0SmxUfIXFGORrWeQrfDJQZtBxGWY/wnqwKk1McYhZES5fuT4ODVB13Cag1mDiMRIi8JQuZCJxQLfu8EEFUShX8dXKMHAT5jWTrDSQTJXwCDT2KRB4TUA7QF0pZbpvQPLVVzXf',
+            'user_id': 'XPGBOX',
+            'token2': 'XFxIummRrngadHB4TCzeUaleebTX10Vl/ftCvGLPeI5tN2Y/liZ5tY5e4t8=',
+            'hash': 'c56f',
+            'timestamp': '1727236846'
+        }
+
     def homeVideoContent(self):
-        rsp = self.fetch(f"{self.host}/api.php/v2.main/androidhome", headers=self.headers).json()
+        rsp = self.fetch("{0}/api.php/v2.main/androidhome".format(self.host), headers=self.header)
+        root = rsp.json()['data']['list']
         videos = []
-        for i in rsp['data']['list']:videos.extend(self.getlist(i['list']))
-        return {'list':videos}
+        for vodd in root:
+            for vod in vodd['list']:
+                videos.append({
+                    "vod_id": vod['id'],
+                    "vod_name": vod['name'],
+                    "vod_pic": vod['pic'],
+                    "vod_remarks": vod['score']
+                })
+        result = {
+            'list': videos
+        }
+        return result
 
     def categoryContent(self, tid, pg, filter, extend):
-        params = {
-            "page": pg,
-            "type": tid,
-            "area":extend.get('areaes',''),
-            "year":extend.get('yeares',''),
-            "sortby":extend.get('sortby',''),
-            "class":extend.get('classes','')
-        }
-        params={i:v for i,v in params.items() if v}
-        rsp = self.fetch(f'{self.host}/api.php/v2.vod/androidfilter10086', headers=self.headers, params=params).json()
+        parms = []
+        parms.append(f"page={pg}")
+        parms.append(f"type={tid}")
+        if extend.get('areas'):
+            parms.append(f"area={quote(extend['areas'])}")
+        if extend.get('years'):
+            parms.append(f"year={quote(extend['years'])}")
+        if extend.get('sortby'):
+            parms.append(f"sortby={extend['sortby']}")
+        if extend.get('classes'):
+            parms.append(f"class={quote(extend['classes'])}")
+        parms = "&".join(parms)
         result = {}
-        result['list'] = self.getlist(rsp['data'])
+        url = '{0}/api.php/v2.vod/androidfilter10086?{1}'.format(self.host, parms)
+        rsp = self.fetch(url, headers=self.header)
+        root = rsp.json()['data']
+        videos = []
+        for vod in root:
+            videos.append({
+                "vod_id": vod['id'],
+                "vod_name": vod['name'],
+                "vod_pic": vod['pic'],
+                "vod_remarks": vod['score']
+            })
+        result['list'] = videos
         result['page'] = pg
         result['pagecount'] = 9999
         result['limit'] = 90
@@ -87,54 +124,50 @@ class Spider(Spider):
         return result
 
     def detailContent(self, ids):
-        rsp = self.fetch(f'{self.host}/api.php/v3.vod/androiddetail2?vod_id={ids[0]}', headers=self.headers).json()
-        v = rsp['data']
+        id = ids[0]
+        url = '{0}/api.php/v3.vod/androiddetail2?vod_id={1}'.format(self.host, id)
+        rsp = self.fetch(url, headers=self.header)
+        root = rsp.json()['data']
+        node = root['urls']
+        d = [it['key'] + "$" + (f"http://c.xpgtv.net/m3u8/{it['url']}.m3u8" if '.m3u8' not in it['url'] else it['url']) for it in node]
         vod = {
-            'vod_year':v.get('year'),
-            'vod_area':v.get('area'),
-            'vod_lang':v.get('lang'),
-            'type_name':v.get('className'),
-            'vod_actor':v.get('actor'),
-            'vod_director':v.get('director'),
-            'vod_content':v.get('content'),
+            "vod_name": root['name'],
             'vod_play_from': '小苹果',
-            'vod_play_url': '#'.join([f"{i['key']}${i['url']}" for i in v['urls']])
+            'vod_play_url': '#'.join(d),
         }
-        return {'list':[vod]}
+        print(vod)
+        result = {
+            'list': [
+                vod
+            ]
+        }
+        return result
 
     def searchContent(self, key, quick, pg='1'):
-        rsp = self.fetch(f'{self.host}/api.php/v2.vod/androidsearch10086?page={pg}&wd={key}', headers=self.headers).json()
-        return {'list':self.getlist(rsp['data']),'page':pg}
-
-    def playerContent(self, flag, id, vipFlags):
-        header = {
-            'user_id': 'XPGBOX',
-            'token2': 'SnAXiSW8vScXE0Z9aDOnK5xffbO75w1+uPom3WjnYfVEA1oWtUdi2Ihy1N8=',
-            'version': 'XPGBOX com.phoenix.tv1.5.7',
-            'hash': 'd78a',
-            'screenx': '2345',
-            'user-agent': 'Lavf/58.12.100',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
-            'token': 'ElEDlwCVgXcFHFhddiq2JKteHofExRBUrfNlmHrWetU3VVkxnzJAodl52N9EUFS+Dig2A/fBa/V9RuoOZRBjYvI+GW8kx3+xMlRecaZuECdb/3AdGkYpkjW3wCnpMQxf8vVeCz5zQLDr8l8bUChJiLLJLGsI+yiNskiJTZz9HiGBZhZuWh1mV1QgYah5CLTbSz8=',
-            'timestamp': '1743060300',
-            'screeny': '1065',
-        }
-        if 'http' not in id:id=f"http://c.xpgtv.net/m3u8/{id}.m3u8"
-        return {"parse": 0, "url": id, "header": header}
-
-    def localProxy(self, param):
-        pass
-
-    def getlist(self,data):
+        url = '{0}/api.php/v2.vod/androidsearch10086?page={1}&wd={2}'.format(self.host, pg, key)
+        rsp = self.fetch(url, headers=self.header)
+        root = rsp.json()['data']
         videos = []
-        for vod in data:
-            r=f"更新至{vod.get('updateInfo')}" if vod.get('updateInfo') else ''
+        for vod in root:
             videos.append({
                 "vod_id": vod['id'],
                 "vod_name": vod['name'],
                 "vod_pic": vod['pic'],
-                "vod_remarks": r or vod['score']
+                "vod_remarks": vod['score']
             })
-        return videos
+        result = {
+            'list': videos
+        }
+        return result
+
+    def playerContent(self, flag, id, vipFlags):
+        result = {}
+        result["parse"] = 0
+        result["url"] = id
+        result["header"] = self.header
+        return result
+
+    def localProxy(self, param):
+        pass
 
 
